@@ -296,8 +296,8 @@ static void test_send_api(void) {
         CHECK(secp256k1_silentpayments_sender_create_outputs(CTX, op, rp, 2, SMALLEST_OUTPOINT, NULL, 0, p2, 2) == 0);
     }
     /* Check that an invalid keypair is caught even when it is passed alongside a valid one.
-     * The invalid keypair is tested in both positions so that neither the first nor the
-     * last keypair is skipped by the check. */
+     * Putting the invalid keypair first ensures that a missing early return is not masked
+     * by the subsequent zero-sum check, since the valid keypair leaves a nonzero sum. */
     {
         secp256k1_keypair valid_keypair;
         const secp256k1_keypair *t2[2];
