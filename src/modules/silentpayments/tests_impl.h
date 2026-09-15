@@ -300,7 +300,7 @@ static void test_send_api(void) {
      * by the subsequent zero-sum check, since the valid keypair leaves a nonzero sum. */
     {
         secp256k1_keypair valid_keypair;
-        const secp256k1_keypair *t2[2];
+        secp256k1_keypair const *t2[2];
         CHECK(secp256k1_keypair_create(CTX, &valid_keypair, ALICE_SECKEY));
         t2[0] = &valid_keypair;
         t2[1] = &taproot;
