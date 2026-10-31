@@ -56,6 +56,7 @@ static int nonce_function_custom(unsigned char *nonce32, const unsigned char *ms
 #endif
 
 static void run_tests(secp256k1_context *ctx, unsigned char *key);
+static void run_randomized_tests(secp256k1_context *ctx);
 
 int main(void) {
     secp256k1_context* ctx;
@@ -77,12 +78,13 @@ int main(void) {
 
     run_tests(ctx, key);
 
-    /* Test context randomisation. Do this last because it leaves the context
-     * tainted. */
+    /* Test context randomisation. */
     SECP256K1_CHECKMEM_UNDEFINE(key, 32);
     ret = secp256k1_context_randomize(ctx, key);
     SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
     CHECK(ret);
+
+    run_randomized_tests(ctx);
 
     secp256k1_context_destroy(ctx);
     return EXIT_SUCCESS;
@@ -389,6 +391,67 @@ static void run_tests(secp256k1_context *ctx, unsigned char *key) {
 
 #endif
 }
+
+#ifdef ENABLE_MODULE_SILENTPAYMENTS
+static void run_randomized_tests(secp256k1_context *ctx) {
+    unsigned char key[32], tpkey[32], outpoint[36] = { 0 };
+    secp256k1_silentpayments_recipient rec[3];
+    const secp256k1_silentpayments_recipient *recp[3];
+    secp256k1_xonly_pubkey out[3];
+    secp256k1_xonly_pubkey *outp[3];
+    secp256k1_keypair kp;
+    const secp256k1_keypair *kpp[1];
+    const unsigned char *skp[1];
+    int i, ret, mode;
+
+    for (i = 0; i < 32; i++) {
+        key[i] = i + 65;
+        tpkey[i] = i + 99;
+    }
+    for (i = 0; i < 3; i++) {
+        unsigned char s[32];
+        memset(s, 0, 32);
+        s[31] = 10 + i;
+        s[0] = 1;
+        CHECK(secp256k1_ec_pubkey_create(ctx, &rec[i].spend_pubkey, s));
+        s[31] = 40 + i;
+        CHECK(secp256k1_ec_pubkey_create(ctx, &rec[i].scan_pubkey, s));
+        /* The recipients' keys are public: the blinding taints them only through the context. */
+        SECP256K1_CHECKMEM_DEFINE(&rec[i], sizeof(rec[i]));
+        outp[i] = &out[i];
+    }
+    CHECK(secp256k1_keypair_create(ctx, &kp, tpkey));
+
+    for (mode = 0; mode < 3; mode++) {
+        size_t n = (mode == 0) ? 1 : 3;
+        for (i = 0; i < 3; i++) {
+            rec[i].index = i;
+            recp[i] = &rec[i];
+            if (mode == 2) {
+                rec[i].scan_pubkey = rec[0].scan_pubkey;
+            }
+        }
+        SECP256K1_CHECKMEM_UNDEFINE(key, 32);
+        SECP256K1_CHECKMEM_UNDEFINE(&kp, sizeof(kp));
+        kpp[0] = &kp;
+        skp[0] = key;
+
+        ret = secp256k1_silentpayments_sender_create_outputs(ctx, outp, recp, n, outpoint, kpp, 1, skp, 1);
+        SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+        SECP256K1_CHECKMEM_DEFINE(key, 32);
+        SECP256K1_CHECKMEM_DEFINE(&kp, sizeof(kp));
+        CHECK(ret == 1);
+
+        /* The generated outputs are public blockchain data: declassify them so
+         * subsequent checks do not false-positive. */
+        SECP256K1_CHECKMEM_DEFINE(out, sizeof(out));
+    }
+}
+#else
+static void run_randomized_tests(secp256k1_context *ctx) {
+    (void)ctx;
+}
+#endif
 
 #if defined(__GNUC__)
 # pragma GCC diagnostic pop

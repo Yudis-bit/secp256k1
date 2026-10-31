@@ -177,10 +177,11 @@ static int secp256k1_silentpayments_create_output_pubkey(const secp256k1_context
      */
     secp256k1_gej_add_ge(&output_gej, &tweak_G_gej, &spend_ge);
     secp256k1_gej_clear(&tweak_G_gej);
-    if (secp256k1_gej_is_infinity(&output_gej)) {
+    secp256k1_ge_set_gej(&output_ge, &output_gej);
+    secp256k1_declassify(ctx, &output_ge, sizeof(output_ge));
+    if (secp256k1_ge_is_infinity(&output_ge)) {
         return 0;
     }
-    secp256k1_ge_set_gej(&output_ge, &output_gej);
     secp256k1_fe_normalize_var(&output_ge.y);
     secp256k1_extrakeys_ge_even_y(&output_ge);
     secp256k1_xonly_pubkey_save(output_xonly, &output_ge);
