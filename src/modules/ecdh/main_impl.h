@@ -28,8 +28,25 @@ static int ecdh_hash_function_sha256(unsigned char *output, const unsigned char 
     return ecdh_hash_function_sha256_impl(&secp256k1_context_static->hash_ctx, output, x32, y32, data);
 }
 
+static int ecdh_xonly_hash_function_sha256_impl(const secp256k1_hash_ctx *hash_ctx, unsigned char *output, const unsigned char *x32, void *data) {
+    secp256k1_sha256 sha;
+    (void)data;
+
+    secp256k1_sha256_initialize(&sha);
+    secp256k1_sha256_write(hash_ctx, &sha, x32, 32);
+    secp256k1_sha256_finalize(hash_ctx, &sha, output);
+    secp256k1_sha256_clear(&sha);
+
+    return 1;
+}
+
+static int ecdh_xonly_hash_function_sha256(unsigned char *output, const unsigned char *x32, void *data) {
+    return ecdh_xonly_hash_function_sha256_impl(&secp256k1_context_static->hash_ctx, output, x32, data);
+}
+
 const secp256k1_ecdh_hash_function secp256k1_ecdh_hash_function_sha256 = ecdh_hash_function_sha256;
 const secp256k1_ecdh_hash_function secp256k1_ecdh_hash_function_default = ecdh_hash_function_sha256;
+const secp256k1_ecdh_xonly_hash_function secp256k1_ecdh_xonly_hash_function_sha256 = ecdh_xonly_hash_function_sha256;
 
 int secp256k1_ecdh(const secp256k1_context* ctx, unsigned char *output, const secp256k1_pubkey *point, const unsigned char *scalar, secp256k1_ecdh_hash_function hashfp, void *data) {
     int ret = 0;
@@ -67,6 +84,51 @@ int secp256k1_ecdh(const secp256k1_context* ctx, unsigned char *output, const se
     secp256k1_memclear_explicit(y, sizeof(y));
     secp256k1_scalar_clear(&s);
     secp256k1_ge_clear(&pt);
+
+    return (!!ret) & is_sec_valid;
+}
+
+int secp256k1_ecdh_xonly(const secp256k1_context* ctx, unsigned char *output, const unsigned char* xpubkey, const unsigned char *scalar, secp256k1_ecdh_xonly_hash_function hashfp, void *data) {
+    int ret;
+    int is_sec_valid;
+    secp256k1_fe x;
+    unsigned char x32[32];
+    secp256k1_scalar s;
+
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(output != NULL);
+    ARG_CHECK(xpubkey != NULL);
+    ARG_CHECK(scalar != NULL);
+
+    if (!secp256k1_fe_set_b32_limit(&x, xpubkey)) {
+        /* X-only public key overflow, bail out early (we don't need to be constant time in pubkey).
+         * The output is not written: its size is hashfp's. */
+        return 0;
+    }
+
+    is_sec_valid = secp256k1_scalar_set_b32_seckey(&s, scalar);
+    secp256k1_scalar_cmov(&s, &secp256k1_scalar_one, !is_sec_valid);
+
+    if (!secp256k1_ecmult_const_xonly(&x, &x, NULL, &s, 0)) {
+        /* Input is not a valid X coordinate, bail out early. */
+        secp256k1_scalar_clear(&s);
+        return 0;
+    }
+
+    /* Compute a hash of the point */
+    secp256k1_fe_normalize(&x);
+    secp256k1_fe_get_b32(x32, &x);
+
+    if (hashfp == NULL || hashfp == secp256k1_ecdh_xonly_hash_function_sha256) {
+        /* Use ctx-aware function by default */
+        ret = ecdh_xonly_hash_function_sha256_impl(&ctx->hash_ctx, output, x32, data);
+    } else {
+        ret = hashfp(output, x32, data);
+    }
+
+    secp256k1_memclear_explicit(x32, sizeof(x32));
+    secp256k1_fe_clear(&x);
+    secp256k1_scalar_clear(&s);
 
     return (!!ret) & is_sec_valid;
 }
